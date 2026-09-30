@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets / local config
+.env
+*.local
+
+# Build artifacts
+dist/
+build/
+*.log
+
+# Binary distribution & local database (publish via GitHub Releases instead)
+*.exe
+*.zip
+pethospitalmcp/windows/data/
+pethospitalmcp/pet-hospital-windows-amd64.zip
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

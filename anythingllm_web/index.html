@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnythingLLM 控制台</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; color: #222; background: #f6f7f9; }
+  header { background: #20242c; color: #fff; padding: 12px 16px; }
+  header h1 { font-size: 18px; margin: 0 0 10px; }
+  #cfg { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+  #cfg input { padding: 4px 6px; border: 1px solid #444; border-radius: 4px; background: #2b303b; color: #fff; }
+  #cfg input[type=url], #cfg input[type=password] { flex: 1; min-width: 200px; }
+  .uprow { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  button { cursor: pointer; padding: 4px 12px; font-size: 13px; border: 1px solid #bbb; border-radius: 4px; background: #fff; }
+  button:hover { background: #eef; }
+  button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+  button.danger { border-color: #d66; color: #b00020; }
+  button.sm { padding: 1px 8px; font-size: 12px; }
+  progress { flex: 1; min-width: 120px; }
+  main { display: grid; grid-template-columns: 260px 1fr; gap: 12px; padding: 12px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: #fff; border: 1px solid #e1e3e6; border-radius: 8px; padding: 10px; }
+  section h2 { font-size: 14px; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; font-size: 13px; }
+  .row:hover { background: #f0f4ff; }
+  .row.active { background: #dbe7ff; }
+  .scroll { max-height: calc(100vh - 220px); overflow: auto; }
+  .folder { font-weight: 600; font-size: 13px; margin: 6px 0 2px; padding: 2px 4px; background: #f0f2f5; border-radius: 4px; }
+  .file { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: 13px; border-radius: 4px; }
+  .file:hover { background: #f4f7ff; }
+  .file .fname { flex: 1; word-break: break-all; cursor: pointer; color: #1b4db8; }
+  .file .fname:hover { text-decoration: underline; }
+  .file .meta { color: #888; font-size: 12px; white-space: nowrap; }
+  .btnGrp { margin-left: auto; }
+  .btnGrp button.active { background: #dbe7ff; }
+  .empty, .err, .ok, .loading { font-size: 13px; padding: 8px; }
+  .empty { color: #999; }
+  .err { color: #b00020; white-space: pre-wrap; }
+  .ok { color: #15803d; }
+  .loading { color: #666; }
+  .toolbar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+  #delSelBtn[disabled] { opacity: .5; cursor: not-allowed; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #20242c; color: #fff; padding: 8px 16px; border-radius: 6px; font-size: 13px; max-width: 80%; display: none; z-index: 9; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .pvbox { background: #fff; border-radius: 8px; width: min(680px, 92vw); max-height: 78vh; display: flex; flex-direction: column; }
+  .pvhead { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #eee; }
+  .pvhead b { word-break: break-all; }
+  #pvBody { flex: 1; overflow: auto; margin: 0; padding: 12px 14px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  #pvMeta { padding: 6px 14px; color: #666; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AnythingLLM 控制台</h1>
+  <div id="cfg">
+    <label>地址 <input type="url" id="cfgBase" placeholder="http://localhost:3001"></label>
+    <label>API Key <input type="password" id="cfgKey"></label>
+    <button id="cfgSave" class="primary">保存配置</button><span id="cfgMsg"></span>
+  </div>
+  <div class="uprow">
+    <input type="file" id="file" multiple>
+    <button id="btnUp" class="primary">上传并嵌入当前工作区</button>
+    <progress id="pg" value="0" max="100" hidden></progress>
+    <span id="upMsg"></span>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>工作区管理 <button class="sm" id="refWs">刷新</button></h2>
+    <div class="toolbar">
+      <input id="newWsName" placeholder="新工作区名称" style="flex:1;padding:4px 6px;">
+      <button id="newWsBtn" class="primary sm">新建</button>
+    </div>
+    <div class="scroll" id="wsList"></div>
+  </section>
+
+  <section>
+    <h2 id="docTitle">文档树 · 当前工作区 <button class="sm" id="refDocs">刷新</button></h2>
+    <div class="toolbar">
+      <button id="delSelBtn" class="danger" disabled>删除选中(0)</button>
+      <span class="btnGrp">
+        <button class="sm" data-act="view" data-view="tree">树</button>
+        <button class="sm" data-act="view" data-view="list">列表</button>
+      </span>
+      <span class="meta" id="docCount" style="color:#888;font-size:12px"></span>
+    </div>
+    <div class="scroll" id="docTree"></div>
+  </section>
+</main>
+
+<div id="pv" class="modal" style="display:none">
+  <div class="pvbox">
+    <div class="pvhead"><b id="pvTitle"></b><button id="pvClose">×</button></div>
+    <div id="pvMeta"></div>
+    <pre id="pvBody">加载中…</pre>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+// 配置：默认取本地 .env 值，可改后保存到 localStorage
+// API Key 请在页面顶部「API Key」输入框填写，不要硬编码到源码中
+const DEFAULTS = { base: 'http://localhost:3001', key: '', ws: '' };
+let S = Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem('allm_cfg') || '{}'));
+let WORKS = [], DOCS = [], SEL = new Set(), VIEW = 'tree';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function toast(msg, ok = true) {
+  const t = $('toast'); t.style.background = ok ? '#20242c' : '#b00020';
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500);
+}
+
+async function api(path, { method = 'GET', json } = {}) {
+  const opt = { method, headers: { 'Authorization': 'Bearer ' + S.key } };
+  if (json) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(json); }
+  try {
+    const res = await fetch(S.base + path, opt);
+    let data = null; try { data = await res.json(); } catch (_) {}
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) { return { ok: false, status: 0, data: null }; }
+}
+
+// 永久删除文档（新版为 DELETE，旧版为 POST，兼容两种）
+async function removeDocs(names) {
+  let r = await api('/v1/system/remove-documents', { method: 'DELETE', json: { names } });
+  if ([404, 405].includes(r.status)) r = await api('/v1/system/remove-documents', { method: 'POST', json: { names } });
+  return r;
+}
+
+function setLoading(el, on) { el.innerHTML = on ? '<div class="loading">加载中…</div>' : ''; }
+function metaOf(d) { return [d.wordCount ? d.wordCount + ' 字' : '', d.token_count_estimate ? d.token_count_estimate + ' tokens' : ''].filter(Boolean).join(' · '); }
+
+// 工作区管理
+async function loadWorkspaces() {
+  const list = $('wsList');
+  setLoading(list, true);
+  const r = await api('/v1/workspaces');
+  if (!r.ok) { list.innerHTML = '<div class="err">获取工作区失败: ' + esc(r.data?.error || r.status) + '</div>'; return; }
+  WORKS = r.data.workspaces || [];
+  if (!WORKS.some(w => w.slug === S.ws)) S.ws = WORKS[0]?.slug || '';
+  list.innerHTML = WORKS.map(w => `
+    <div class="row ${w.slug === S.ws ? 'active' : ''}">
+      <span title="${esc(w.slug)}">${esc(w.name)}</span>
+      <button class="sm" data-act="openWs" data-slug="${esc(w.slug)}">切换</button>
+    </div>`).join('') || '<div class="empty">暂无工作区，请新建</div>';
+  if (S.ws) loadDocs();
+}
+
+async function createWS() {
+  const name = $('newWsName').value.trim();
+  if (!name) return toast('请输入工作区名称', false);
+  const r = await api('/v1/workspace/new', { json: { name } });
+  if (!r.ok || !r.data?.workspace) return toast('新建失败: ' + esc(r.data?.message || r.status), false);
+  S.ws = r.data.workspace.slug;
+  persist(); $('newWsName').value = '';
+  toast('工作区已创建'); loadWorkspaces();
+}
+
+// 当前工作区文档：树形（按目录分组）
+async function loadDocs() {
+  const root = $('docTree'), tit = $('docTitle');
+  if (!S.ws) { root.innerHTML = '<div class="empty">请先选择工作区</div>'; return; }
+  setLoading(root, true);
+  tit.firstChild.textContent = '文档树 · ' + (WORKS.find(w => w.slug === S.ws)?.name || S.ws);
+  const r = await api('/v1/workspace/' + encodeURIComponent(S.ws));
+  const w = r.ok ? (Array.isArray(r.data?.workspace) ? r.data.workspace[0] : r.data?.workspace) : null;
+  if (!w) { root.innerHTML = '<div class="err">加载失败: ' + esc(r.status || '网络错误') + '</div>'; return; }
+  DOCS = (w.documents || []).filter(d => d.docpath);
+  renderDocs();
+}
+
+function fileRow(d) {
+  const name = (d.filename || d.docpath).split('/').pop();
+  const meta = metaOf(d);
+  const attrs = `data-path="${esc(d.docpath)}" data-name="${esc(name)}" data-meta="${esc(meta)}"`;
+  return `<div class="file">
+    <input type="checkbox" data-act="sel" ${attrs} ${SEL.has(d.docpath) ? 'checked' : ''}>
+    <span class="fname" data-act="prev" ${attrs} title="${esc(d.docpath + (meta ? '\n' + meta : ''))}">📄 ${esc(name)}</span>
+    <span class="meta">${esc(meta)}</span>
+    <button class="sm danger" data-act="del" ${attrs}>删除</button>
+  </div>`;
+}
+
+function renderDocs() {
+  const root = $('docTree');
+  if (!DOCS.length) { root.innerHTML = '<div class="empty">该工作区暂无文档</div>'; $('docCount').textContent = ''; return; }
+  $('docCount').textContent = '共 ' + DOCS.length + ' 个文档';
+  if (VIEW === 'list') {
+    root.innerHTML = DOCS.slice().sort((a, b) => (a.filename || a.docpath).localeCompare(b.filename || b.docpath)).map(fileRow).join('');
+  } else {
+    // 按 docpath 目录分组，构建树形
+    const groups = {};
+    for (const d of DOCS) {
+      const parts = d.docpath.split('/');
+      const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '(根目录)';
+      (groups[folder] = groups[folder] || []).push(d);
+    }
+    root.innerHTML = Object.keys(groups).sort().map(folder => {
+      const files = groups[folder].sort((a, b) => (a.filename || a.docpath).localeCompare(b.filename || b.docpath));
+      return '<div class="folder">📁 ' + esc(folder) + '</div>' + files.map(fileRow).join('');
+    }).join('');
+  }
+  $('delSelBtn').textContent = '删除选中(' + SEL.size + ')';
+  $('delSelBtn').disabled = SEL.size === 0;
+  document.querySelectorAll('.btnGrp button').forEach(b => b.classList.toggle('active', b.dataset.view === VIEW));
+}
+
+// 点击文档名预览：先展示元数据，再拉取正文内容
+async function preview(el) {
+  $('pvTitle').textContent = el.dataset.name;
+  $('pvMeta').textContent = el.dataset.path + (el.dataset.meta ? ' · ' + el.dataset.meta : '');
+  $('pvBody').textContent = '加载中…';
+  $('pv').style.display = 'flex';
+  const r = await api('/v1/document/' + encodeURIComponent(el.dataset.name));
+  if (r.ok && r.data?.document) $('pvBody').textContent = r.data.document.pageContent || '(该文档无文本正文)';
+  else $('pvBody').textContent = '正文获取失败（HTTP ' + (r.status || '网络错误') + '），仅展示元数据。';
+}
+
+async function doDelete(paths) {
+  if (!paths.length) return;
+  if (!confirm('确认永久删除 ' + paths.length + ' 个文档？\n' + paths.map(p => '· ' + p).join('\n'))) return;
+  const r = await removeDocs(paths);
+  toast(r.ok ? '已删除 ' + paths.length + ' 个文档' : ('删除失败: ' + (r.data?.error || r.status)), r.ok);
+  SEL.clear();
+  loadDocs();
+}
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === 'openWs') { S.ws = el.dataset.slug; persist(); loadWorkspaces(); }
+  else if (act === 'view') { VIEW = el.dataset.view; renderDocs(); }
+  else if (act === 'del') doDelete([el.dataset.path]);
+  else if (act === 'prev') preview(el);
+  else if (act === 'sel') { const p = el.dataset.path; SEL.has(p) ? SEL.delete(p) : SEL.add(p); $('delSelBtn').textContent = '删除选中(' + SEL.size + ')'; $('delSelBtn').disabled = SEL.size === 0; }
+});
+
+// 预览弹窗关闭
+$('pvClose').onclick = () => $('pv').style.display = 'none';
+$('pv').addEventListener('click', e => { if (e.target === $('pv')) $('pv').style.display = 'none'; });
+
+// 上传并嵌入当前工作区（保留原功能）
+$('btnUp').addEventListener('click', () => {
+  const files = $('file').files, msg = $('upMsg'), pg = $('pg');
+  if (!files.length) return msg.innerHTML = '<span class="err">请先选择文件</span>';
+  if (!S.ws) return msg.innerHTML = '<span class="err">请先选择工作区</span>';
+  msg.innerHTML = ''; SEL.clear();
+  const fd = new FormData();
+  for (const f of files) fd.append('file', f);
+  fd.append('addToWorkspaces', S.ws);
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', S.base + '/api/v1/document/upload');
+  xhr.setRequestHeader('Authorization', 'Bearer ' + S.key);
+  xhr.upload.onprogress = e => { if (e.lengthComputable) { pg.hidden = false; pg.value = e.loaded / e.total * 100; } };
+  xhr.onload = () => {
+    pg.hidden = true;
+    try { const data = JSON.parse(xhr.responseText);
+      if (data.success && Array.isArray(data.documents)) { msg.innerHTML = '<span class="ok">上传成功 ' + data.documents.length + ' 个文档</span>'; loadDocs(); }
+      else msg.innerHTML = '<span class="err">失败: ' + esc(data.error || JSON.stringify(data)) + '</span>';
+    } catch (_) { msg.innerHTML = '<span class="err">响应解析失败（HTTP ' + xhr.status + '）</span>'; }
+  };
+  xhr.onerror = () => { pg.hidden = true; msg.innerHTML = '<span class="err">网络错误，无法连接 ' + S.base + '</span>'; };
+  xhr.send(fd);
+});
+
+function persist() { localStorage.setItem('allm_cfg', JSON.stringify({ base: S.base, key: S.key, ws: S.ws })); }
+
+$('cfgBase').value = S.base; $('cfgKey').value = S.key;
+$('cfgSave').onclick = () => {
+  S.base = $('cfgBase').value.trim().replace(/\/+$/, ''); S.key = $('cfgKey').value.trim();
+  persist(); $('cfgMsg').textContent = '已保存';
+  setTimeout(() => $('cfgMsg').textContent = '', 1500);
+  loadWorkspaces();
+};
+$('refWs').onclick = loadWorkspaces;
+$('refDocs').onclick = loadDocs;
+$('newWsBtn').onclick = createWS;
+$('newWsName').addEventListener('keydown', e => { if (e.key === 'Enter') createWS(); });
+$('delSelBtn').onclick = () => doDelete([...SEL]);
+
+loadWorkspaces();
+</script>
+</body>
+</html>

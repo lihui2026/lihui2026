@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pet-hospital": {
+      "type": "local",
+      "enabled": true,
+      "command": ["python", "D:\\xitong\\pet-hospital-mcp\\server.py"]
+    }
+  }
+}

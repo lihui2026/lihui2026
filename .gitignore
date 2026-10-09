@@ -11,6 +11,7 @@ venv/
 # Secrets / local config
 .env
 *.local
+config.ini
 
 # Build artifacts
 dist/

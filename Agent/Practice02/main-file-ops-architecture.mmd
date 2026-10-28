@@ -1,0 +1,36 @@
+flowchart TD
+  U[用户输入] --> M["main-file-ops.py\n(load_config/build_system_prompt/run_once)"]
+  M --> P["LLM 接口 /chat/completions\n(tools: TOOLS)"]
+  P --> D{是否有 tool_calls}
+  D -- 否 --> R["输出最终回答"]
+  D -- 是 --> TC["run_tool_calls(messages, message)"]
+  TC --> CT["tools.call_tool(name, args)"]
+  CT --> GT["getDate()"]
+  CT --> LY["isLeapYear(year)"]
+  CT --> CWD["getCurrentWorkingDirectory()"]
+  CT --> LD["listDirectory(dir)"]
+  CT --> GFT["getFileType(path)"]
+  CT --> GFC["getFileContent(path)"]
+  CT --> CF["createFile(dir, filename, ...)"]
+  CT --> EFC["editFileContent(path, content, append)"]
+  CT --> CD["createDirectory(dir)"]
+  CT --> RD["removeDirectory(dir)"]
+  CT --> DF["deleteFile(path)"]
+  CT --> RP["renamePath(src,dst,...)"]
+  GT --> CMD["subprocess 调用 date / cmd"]
+  CMD --> TC
+  LY --> TC
+  CWD --> OS["os.getcwd()"]
+  LD --> FS["Path.iterdir()"]
+  GFT --> FS
+  GFC --> FS["Path.read_text(UTF-8/GBK)"]
+  CF --> FS["Path.mkdir/write_text"]
+  EFC --> FS["Path.open/write_text"]
+  CD --> FS["Path.mkdir(parents=True)"]
+  RD --> FS["shutil.rmtree"]
+  DF --> FS["Path.unlink"]
+  RP --> FS["Path.rename/shutil.rmtree/unlink"]
+  OS --> TC
+  FS --> TC
+  TC --> P
+  R --> U

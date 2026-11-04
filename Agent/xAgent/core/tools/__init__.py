@@ -1,4 +1,4 @@
-"""Tool definitions and implementations (file ops, date, leap year, web)."""
+﻿"""Tool definitions and implementations (file ops, date, leap year, web)."""
 import configparser
 import json
 import locale
@@ -6,6 +6,8 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+
+from core.skills import skill_manager
 
 try:
     import requests
@@ -18,6 +20,8 @@ except ImportError:
     trafilatura = None
 
 TOOL_TIMEOUT = 10
+CLI_TIMEOUT = 30
+CLI_OUTPUT_LIMIT = 6000
 
 
 def _get_search_api_key():
@@ -35,6 +39,26 @@ def _get_search_api_key():
     return ""
 
 TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "RunCli",
+            "description": "在本机执行已安装的命令行程序（CLI），并返回标准输出、标准错误和退出码。command 为程序名称或路径，args 为参数列表；不会经过 Shell，因此不支持管道、重定向等 Shell 语法。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "要执行的程序名称（需在 PATH 中）或完整路径。"},
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "传给程序的参数列表，每个参数为单独的字符串；无参数时传空列表。",
+                    },
+                },
+                "required": ["command", "args"],
+                "additionalProperties": False,
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -211,6 +235,38 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "loadSkill",
+            "description": "加载指定 Skill 的完整内容。仅提供 name 时读取该 Skill 的 SKILL.md 全文；同时提供 filename 时读取该 Skill 目录内的附件文件，不会再次加载 SKILL.md。filename 支持相对于 Skill 目录的路径、项目相对路径或绝对路径；仅提供文件名时会递归搜索该 Skill 目录，若有多个同名文件则返回候选路径。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Skill 的名称。"},
+                    "filename": {"type": "string", "description": "可选：需要加载的 Skill 附件文件路径或名称。"},
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "createSkill",
+            "description": "在项目的 .agents/skills/ 目录下创建新的 Skill，并生成符合 Agent Skills 规范的 SKILL.md。name 必须为小写字母、数字和连字符组成的英文名称；skillContext 为 SKILL.md 的完整内容（可包含 YAML Frontmatter）。如果目标 Skill 已存在则不会覆盖。如需创建 references/、scripts/ 等附加目录或文件，请在创建后继续使用 createFile、createDirectory 等文件工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Skill 名称，必须为小写字母、数字和连字符组成的英文名称，如 my-skill。"},
+                    "skillContext": {"type": "string", "description": "要写入 SKILL.md 的完整内容，包含 YAML Frontmatter、name、description 和正文。"},
+                },
+                "required": ["name", "skillContext"],
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 
@@ -223,6 +279,45 @@ def _decode(raw):
         except (UnicodeDecodeError, LookupError):
             continue
     return raw.decode("utf-8", errors="replace")
+
+
+def _truncate_output(text):
+    if len(text) <= CLI_OUTPUT_LIMIT:
+        return text
+    omitted = len(text) - CLI_OUTPUT_LIMIT
+    head = CLI_OUTPUT_LIMIT // 2
+    tail = CLI_OUTPUT_LIMIT - head
+    return (
+        f"{text[:head]}\n"
+        f"...（输出过长，已截断 {omitted} 个字符，保留开头和结尾）...\n"
+        f"{text[-tail:]}"
+    )
+
+
+def RunCli(command, args=None):
+    if not command or not isinstance(command, str):
+        return "RunCli 参数错误：command 必须为非空字符串。"
+    if args is None:
+        args = []
+    if not isinstance(args, list) or any(not isinstance(a, str) for a in args):
+        return "RunCli 参数错误：args 必须为字符串列表。"
+    cmd = [command] + args
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=CLI_TIMEOUT, shell=False)
+    except subprocess.TimeoutExpired:
+        return f"RunCli 失败：命令执行超时（超过 {CLI_TIMEOUT} 秒）。"
+    except FileNotFoundError:
+        return f"RunCli 失败：找不到程序“{command}”，请确认已安装且在 PATH 中。"
+    except OSError as exc:
+        return f"RunCli 失败：无法启动程序：{exc}"
+    stdout = _truncate_output(_decode(proc.stdout))
+    stderr = _truncate_output(_decode(proc.stderr))
+    return (
+        f"命令：{subprocess.list2cmdline(cmd)}\n"
+        f"退出码：{proc.returncode}\n"
+        f"标准输出：\n{stdout if stdout.strip() else '（空）'}\n"
+        f"标准错误：\n{stderr if stderr.strip() else '（空）'}"
+    )
 
 
 def _date_command():
@@ -516,6 +611,8 @@ def searchWeb(query):
 
 def call_tool(name, arguments=None):
     args = arguments or {}
+    if name == "RunCli":
+        return RunCli(args.get("command"), args.get("args"))
     if name == "getDate":
         return getDate()
     if name == "isLeapYear":
@@ -554,4 +651,24 @@ def call_tool(name, arguments=None):
         return fetchWeb(args.get("url"))
     if name == "searchWeb":
         return searchWeb(args.get("query"))
+    if name == "loadSkill":
+        return loadSkill(args.get("name"), args.get("filename"))
+    if name == "createSkill":
+        return createSkill(args.get("name"), args.get("skillContext"))
     return f"未知的工具：{name}"
+
+
+def loadSkill(name, filename=None):
+    try:
+        return skill_manager.load_skill(name, filename)
+    except Exception as exc:
+        return f"加载 Skill 失败：{exc}"
+
+
+def createSkill(name, skillContext):
+    try:
+        return skill_manager.create_skill(name, skillContext)
+    except Exception as exc:
+        return f"创建 Skill 失败：{exc}"
+
+

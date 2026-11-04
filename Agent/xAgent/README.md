@@ -36,4 +36,4 @@ python main.py
 ```
 
 ## 核心功能
-复用 Practice02 的全部本地文件操作工具：getDate、getCurrentWorkingDirectory、listDirectory、getFileType、getFileContent、createFile、editFileContent、createDirectory、removeDirectory、deleteFile、renamePath、isLeapYear。
+复用 Practice02 的全部本地文件操作工具：getDate、getCurrentWorkingDirectory、listDirectory、getFileType、getFileContent、createFile、editFileContent、createDirectory、removeDirectory、deleteFile、renamePath、isLeapYear，以及网页工具 fetchWeb、searchWeb、本地命令行工具 RunCli 和 Skill 工具 loadSkill、createSkill。createSkill 可在项目的 `.agents/skills/` 目录下创建符合 Agent Skills 规范的新 Skill。

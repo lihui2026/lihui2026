@@ -1,5 +1,4 @@
 ﻿"""Tool definitions and implementations (file ops, date, leap year, web)."""
-import configparser
 import json
 import locale
 import os
@@ -7,6 +6,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from core.config import get_config
+from core.context import context_manager
+from core.mcp import mcp_manager, save_mcp_servers
 from core.skills import skill_manager
 
 try:
@@ -19,24 +21,11 @@ try:
 except ImportError:
     trafilatura = None
 
-TOOL_TIMEOUT = 10
-CLI_TIMEOUT = 30
-CLI_OUTPUT_LIMIT = 6000
-
-
 def _get_search_api_key():
     try:
-        cfg = configparser.ConfigParser()
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        cfg_path = os.path.join(base_dir, "config.ini")
-        cfg.read(cfg_path, encoding="utf-8-sig")
-        if cfg.has_section("search"):
-            key = cfg.get("search", "baidu_qianfan_api_key", fallback="").strip()
-            if key:
-                return key
+        return get_config().search_api_key.strip()
     except Exception:
-        pass
-    return ""
+        return ""
 
 TOOLS = [
     {
@@ -254,6 +243,39 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "recallContext",
+            "description": "检索此前上下文压缩时保存的原始上下文归档（位于项目的 .agents/context/ 目录）。当压缩摘要缺少某些历史细节（如具体文件路径、命令输出、错误信息）时调用本工具。可指定归档编号 id 只检索该归档；不提供 id 时会在全部归档中进行全文关键词检索。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "可选：上下文归档编号，如 20261022-153000；不提供时检索全部归档。"},
+                    "text": {"type": "string", "description": "必需：需要查找的关键词或文本内容。"},
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "createMCP",
+            "description": "新增一个 MCP Server：将 server_name、transport_type、url 写入 office/.mcp.json（合并进 mcpServers），然后立即重新连接所有 MCP Server 并刷新工具列表。transport_type 目前支持 streamable-http。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "server_name": {"type": "string", "description": "MCP Server 名称，如 Bazi-MCP、PetHospitalMCP。"},
+                    "transport_type": {"type": "string", "description": "传输协议类型，目前支持 streamable-http。"},
+                    "url": {"type": "string", "description": "MCP Server 的 URL，如 https://example.com/mcp 或 http://127.0.0.1:8090/mcp。"},
+                },
+                "required": ["server_name", "transport_type", "url"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "createSkill",
             "description": "在项目的 .agents/skills/ 目录下创建新的 Skill，并生成符合 Agent Skills 规范的 SKILL.md。name 必须为小写字母、数字和连字符组成的英文名称；skillContext 为 SKILL.md 的完整内容（可包含 YAML Frontmatter）。如果目标 Skill 已存在则不会覆盖。如需创建 references/、scripts/ 等附加目录或文件，请在创建后继续使用 createFile、createDirectory 等文件工具。",
             "parameters": {
@@ -269,6 +291,15 @@ TOOLS = [
     },
 ]
 
+LOCAL_TOOL_NAMES = frozenset(tool["function"]["name"] for tool in TOOLS)
+
+
+def get_tools():
+    """Return local tools plus dynamically discovered MCP tools."""
+    tools = list(TOOLS)
+    tools.extend(mcp_manager.get_tool_definitions())
+    return tools
+
 
 def _decode(raw):
     for enc in ("utf-8", locale.getpreferredencoding(False), "gbk"):
@@ -282,11 +313,12 @@ def _decode(raw):
 
 
 def _truncate_output(text):
-    if len(text) <= CLI_OUTPUT_LIMIT:
+    limit = get_config().cli_output_limit
+    if len(text) <= limit:
         return text
-    omitted = len(text) - CLI_OUTPUT_LIMIT
-    head = CLI_OUTPUT_LIMIT // 2
-    tail = CLI_OUTPUT_LIMIT - head
+    omitted = len(text) - limit
+    head = limit // 2
+    tail = limit - head
     return (
         f"{text[:head]}\n"
         f"...（输出过长，已截断 {omitted} 个字符，保留开头和结尾）...\n"
@@ -302,10 +334,11 @@ def RunCli(command, args=None):
     if not isinstance(args, list) or any(not isinstance(a, str) for a in args):
         return "RunCli 参数错误：args 必须为字符串列表。"
     cmd = [command] + args
+    timeout = get_config().cli_timeout
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=CLI_TIMEOUT, shell=False)
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout, shell=False)
     except subprocess.TimeoutExpired:
-        return f"RunCli 失败：命令执行超时（超过 {CLI_TIMEOUT} 秒）。"
+        return f"RunCli 失败：命令执行超时（超过 {timeout} 秒）。"
     except FileNotFoundError:
         return f"RunCli 失败：找不到程序“{command}”，请确认已安装且在 PATH 中。"
     except OSError as exc:
@@ -329,7 +362,7 @@ def _date_command():
 def getDate():
     cmd = _date_command()
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=TOOL_TIMEOUT)
+        proc = subprocess.run(cmd, capture_output=True, timeout=get_config().tool_timeout)
     except FileNotFoundError as exc:
         return f"调用 date 命令失败：{exc}"
     except subprocess.TimeoutExpired:
@@ -505,20 +538,21 @@ def fetchWeb(url):
         return "fetchWeb 参数错误：url 必须为非空字符串。"
     if trafilatura is None:
         return "fetchWeb 失败：缺少 trafilatura 库，请先安装：pip install trafilatura"
+    cfg = get_config()
     try:
         cmd = [
             "curl",
             "-L",
             "-sS",
             "--connect-timeout",
-            "10",
+            str(cfg.fetch_connect_timeout),
             "--max-time",
-            "30",
+            str(cfg.fetch_max_timeout),
             "-A",
             "Mozilla/5.0 (compatible; xAgent/1.0)",
             url,
         ]
-        proc = subprocess.run(cmd, capture_output=True, timeout=40)
+        proc = subprocess.run(cmd, capture_output=True, timeout=cfg.fetch_timeout)
         if proc.returncode != 0:
             err = _decode(proc.stderr).strip()
             return f"fetchWeb 失败：curl 执行失败（退出码 {proc.returncode}）{': ' + err if err else '。'}"
@@ -566,7 +600,9 @@ def searchWeb(query):
     }
     payload = {"messages": [{"role": "user", "content": query}]}
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp = requests.post(
+            url, headers=headers, json=payload, timeout=get_config().search_timeout
+        )
     except requests.Timeout:
         return "searchWeb 失败：网络请求超时。"
     except requests.RequestException as exc:
@@ -655,7 +691,20 @@ def call_tool(name, arguments=None):
         return loadSkill(args.get("name"), args.get("filename"))
     if name == "createSkill":
         return createSkill(args.get("name"), args.get("skillContext"))
+    if name == "createMCP":
+        return createMCP(args.get("server_name"), args.get("transport_type"), args.get("url"))
+    if name == "recallContext":
+        return recallContext(args.get("id"), args.get("text"))
+    if "__" in name or mcp_manager.has_tool(name):
+        return mcp_manager.call_tool(name, args)
     return f"未知的工具：{name}"
+
+
+def recallContext(archive_id=None, text=None):
+    try:
+        return context_manager.recall(text, archive_id)
+    except Exception as exc:
+        return f"recallContext 失败：{exc}"
 
 
 def loadSkill(name, filename=None):
@@ -670,5 +719,47 @@ def createSkill(name, skillContext):
         return skill_manager.create_skill(name, skillContext)
     except Exception as exc:
         return f"创建 Skill 失败：{exc}"
+
+
+def createMCP(server_name=None, transport_type=None, url=None):
+    try:
+        name = str(server_name or "").strip()
+        url_text = str(url or "").strip()
+        transport = str(transport_type or "").strip()
+        if not name:
+            return "createMCP 参数错误：server_name 不能为空。"
+        if not url_text:
+            return "createMCP 参数错误：url 不能为空。"
+        normalized = transport.lower().replace("-", "_")
+        if normalized not in ("streamable_http", "streamablehttp", "http"):
+            return (
+                "createMCP 参数错误：transport_type 仅支持 streamable-http"
+                f"（收到：{transport or '（空）'}）。"
+            )
+        entry = {"type": "streamable-http", "url": url_text}
+        path, saved = save_mcp_servers(
+            {name: entry}, mcp_manager.config_path, mcp_manager.project_root
+        )
+        mcp_manager.reload()
+        lines = [f"已写入 MCP 配置：{path}", f"已保存服务器：{', '.join(saved)}"]
+        discovered = [
+            t["name"] for t in mcp_manager.get_tools_info() if t["server"] in saved
+        ]
+        if discovered:
+            lines.append("已发现工具：" + ", ".join(discovered))
+        errors = [
+            message
+            for message in mcp_manager.get_errors()
+            if any(server in message for server in saved)
+        ]
+        if errors:
+            lines.extend(errors)
+        elif discovered:
+            lines.append("连接成功。")
+        else:
+            lines.append("未能从该服务器发现工具（服务可能未启动；仅告警，不影响其他工具）。")
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"createMCP 失败：{exc}"
 
 

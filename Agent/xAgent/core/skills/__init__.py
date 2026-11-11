@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.config import get_config
+
 try:
     import yaml
 except ImportError:
@@ -221,13 +223,14 @@ class SkillManager:
 
     @staticmethod
     def _derive_description(body: str) -> str:
+        limit = get_config().skill_description_limit
         for line in body.splitlines():
             text = line.strip()
             if not text:
                 continue
             text = re.sub(r"^(?:#{1,6}\s*|[-*+]\s+|>\s*|\d+\.\s+)", "", text).strip()
             if text:
-                return text[:200]
+                return text[:limit]
         return ""
 
     @staticmethod

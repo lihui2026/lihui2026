@@ -4,7 +4,27 @@ Screen {
 
 #main {
     height: 1fr;
+}
+
+#content {
+    width: 1fr;
+    height: 1fr;
     layout: vertical;
+}
+
+#context-status {
+    height: 3;
+    margin: 0 1;
+    padding: 1 2;
+    background: $panel;
+    border: round $primary;
+    content-align: center middle;
+    text-style: bold;
+}
+
+#context-status.warning {
+    border: round $error;
+    color: $error;
 }
 
 #chat-log {
@@ -14,10 +34,24 @@ Screen {
     border: tall $primary;
 }
 
+#input-area {
+    height: auto;
+    padding: 0 1;
+}
+
+#command-palette {
+    display: none;
+    height: auto;
+    max-height: 14;
+    margin: 0 1;
+    padding: 0 1;
+    background: $panel;
+    border: round $accent;
+}
+
 #input-bar {
     height: auto;
-    dock: bottom;
-    padding: 1 2;
+    padding: 1 1;
 }
 
 #user-input {
@@ -26,4 +60,147 @@ Screen {
 
 #send-btn {
     width: auto;
+}
+
+#mcp-sidebar {
+    width: 34;
+    height: 1fr;
+    border: tall $secondary;
+    padding: 1;
+    background: $panel;
+}
+
+#mcp-sidebar-title {
+    height: auto;
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#mcp-sidebar-body {
+    height: auto;
+}
+
+CompactPanelScreen {
+    align: center middle;
+}
+
+#compact-panel {
+    width: 92%;
+    height: 88%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#compact-title {
+    height: auto;
+    text-style: bold;
+    content-align: center middle;
+    margin-bottom: 1;
+}
+
+#compact-columns {
+    height: 1fr;
+}
+
+.compact-pane {
+    width: 1fr;
+    height: 1fr;
+    border: round $secondary;
+    padding: 0 1;
+    layout: vertical;
+}
+
+.compact-pane-title {
+    height: auto;
+    text-style: bold;
+    background: $boost;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.compact-body {
+    height: 1fr;
+}
+
+.compact-body Static {
+    width: 1fr;
+}
+
+#compact-close {
+    dock: bottom;
+    margin-top: 1;
+}
+
+SessionListScreen {
+    align: center middle;
+}
+
+#session-panel {
+    width: 84%;
+    height: 82%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+    layout: vertical;
+}
+
+#session-title {
+    height: auto;
+    text-style: bold;
+    content-align: center middle;
+    margin-bottom: 1;
+}
+
+#session-list-scroll {
+    height: 1fr;
+    border: round $secondary;
+    padding: 0 1;
+}
+
+#session-list {
+    width: 1fr;
+}
+
+#session-help {
+    height: auto;
+    content-align: center middle;
+    color: $text-muted;
+    margin-top: 1;
+}
+
+ConfigNoticeScreen {
+    align: center middle;
+}
+
+#config-panel {
+    width: 70%;
+    height: auto;
+    background: $surface;
+    border: thick $warning;
+    padding: 2 3;
+    layout: vertical;
+}
+
+#config-title {
+    height: auto;
+    text-style: bold;
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#config-body {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#config-buttons {
+    height: auto;
+    align: center middle;
+}
+
+#config-buttons Button {
+    margin: 0 1;
 }

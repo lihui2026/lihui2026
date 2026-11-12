@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -24,6 +25,8 @@ from core.utils import getDate as _getDate
 
 
 AGENTS_MD_MARKER = "以下是项目根目录中的 AGENTS.md 内容"
+# 配置项未命中时的等价文件名（大小写与单复数差异都兼容）
+AGENTS_MD_CANDIDATES = ("AGENT.md", "AGENTS.md", "agents.md", "agent.md")
 
 
 class Agent:
@@ -87,6 +90,7 @@ class Agent:
             "当需要运行本地命令行程序时，请使用 RunCli 工具，并通过 command 和 args 分别传入程序名和参数列表。\n"
             "当需要获取网页主要内容时，请使用 fetchWeb 工具；当需要获取互联网上的最新信息时，请使用 searchWeb 工具。\n"
             "当需要操作本地文件时，请先调用合适的工具获取必要信息再执行后续操作。\n"
+            "删除非空目录必须显式传入 recursive=true，执行前请先确认路径无误。\n"
             "当上下文压缩摘要缺少某些历史细节时，请使用 recallContext 工具检索原始上下文归档。\n"
         )
         skills_info = skill_manager.get_skills_info()
@@ -112,7 +116,15 @@ class Agent:
         return base
 
     def _agents_md_path(self) -> Optional[Path]:
-        for name in ("AGENTS.md", "agents.md"):
+        """按「配置文件名 → 等价命名」的顺序查找项目根目录下的长期规则文件。"""
+        if not getattr(self.cfg, "agents_md_enabled", True):
+            return None
+        configured = str(getattr(self.cfg, "agents_md_filename", "") or "").strip()
+        names: List[str] = []
+        if configured:
+            names.append(configured)
+        names.extend(name for name in AGENTS_MD_CANDIDATES if name not in names)
+        for name in names:
             path = self.project_root / name
             if path.is_file():
                 return path
@@ -138,12 +150,19 @@ class Agent:
         content = self._read_text_file(path)
         if not content or not content.strip():
             return False
+        body = content.strip()
+        limit = int(getattr(self.cfg, "agents_md_max_chars", 8000) or 8000)
+        if len(body) > limit:
+            body = (
+                body[:limit]
+                + f"\n\n……（{path.name} 超过 {limit} 字符，已截断，其余内容未注入）"
+            )
         self.messages.append(
             {
                 "role": "system",
                 "content": (
-                    f"{AGENTS_MD_MARKER}，请在本次会话中遵守其中的约定：\n\n"
-                    + content.strip()
+                    f"{AGENTS_MD_MARKER}（{path.name}），请在本次会话中遵守其中的约定：\n\n"
+                    + body
                 ),
             }
         )
@@ -182,6 +201,26 @@ class Agent:
             )
         except Exception:
             pass
+
+    def _log_tool_call(
+        self, name: str, ok: bool, duration_ms: float, result_chars: int
+    ) -> None:
+        """把每次工具调用追加到 ``.agents/logs/tool_calls.jsonl``（结构化调用追踪）。"""
+        record = {
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "session": (self.session or {}).get("id"),
+            "tool": name,
+            "ok": ok,
+            "duration_ms": round(duration_ms, 1),
+            "result_chars": result_chars,
+        }
+        try:
+            log_dir = self.project_root / ".agents" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            with (log_dir / "tool_calls.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except (OSError, TypeError, ValueError):
+            return
 
     def _reset_context_state(self) -> None:
         self.paused = False
@@ -304,9 +343,15 @@ class Agent:
             except json.JSONDecodeError:
                 args = {}
             try:
+                started = time.perf_counter()
                 result = call_tool(name, args)
+                ok = True
             except Exception as exc:
                 result = f"工具调用失败（{name}）：{exc}"
+                ok = False
+            self._log_tool_call(
+                name, ok, (time.perf_counter() - started) * 1000, len(str(result))
+            )
             results.append({"tool": name, "args": args, "result": result})
             self._append_message(
                 {

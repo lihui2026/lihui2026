@@ -25,6 +25,9 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
         "compaction_message_char_limit": "20000",
         "max_tool_rounds": "5",
         "mcp_tool_description_limit": "300",
+        "agents_md_enabled": "true",
+        "agents_md_filename": "AGENT.md",
+        "agents_md_max_chars": "8000",
     },
     "MCP": {
         "connect_timeout": "30",
@@ -43,6 +46,8 @@ DEFAULTS: Dict[str, Dict[str, str]] = {
         "recall_snippet_chars": "400",
         "recall_total_chars": "6000",
         "skill_description_limit": "200",
+        "skill_content_limit": "20000",
+        "tool_workspace_root": "",
     },
     "search": {
         "baidu_qianfan_api_key": "",
@@ -85,6 +90,12 @@ compaction_message_char_limit = 20000
 max_tool_rounds = 5
 ; System Prompt 中 MCP 工具描述的截断长度
 mcp_tool_description_limit = 300
+; 是否注入项目根目录的 AGENT.md（/agents 可查看状态）
+agents_md_enabled = true
+; 长期规则文件名；找不到时依次回退 AGENT.md / AGENTS.md / agents.md / agent.md
+agents_md_filename = AGENT.md
+; 注入 System Prompt 的最大字符数，超出部分截断（避免 AGENTS.md 挤占上下文）
+agents_md_max_chars = 8000
 
 [MCP]
 ; 单个 MCP Server 连接超时（秒）
@@ -113,6 +124,10 @@ recall_snippet_chars = 400
 recall_total_chars = 6000
 ; 自动生成 Skill 描述时的截断长度
 skill_description_limit = 200
+; loadSkill 单次返回内容的最大字符数（超出截断，避免一次读入过大文件）
+skill_content_limit = 20000
+; 文件操作工具的路径根目录：留空表示不限制；填写后所有写/删/改操作必须位于该目录内
+tool_workspace_root =
 
 [search]
 ; 百度千帆搜索 API Key（searchWeb 工具使用）
@@ -171,6 +186,9 @@ class Config:
         self.mcp_tool_description_limit = self._get_int(
             "LLM", "mcp_tool_description_limit"
         )
+        self.agents_md_enabled = self._get_bool("LLM", "agents_md_enabled")
+        self.agents_md_filename = self._get_str("LLM", "agents_md_filename")
+        self.agents_md_max_chars = self._get_int("LLM", "agents_md_max_chars")
 
         self.mcp_connect_timeout = self._get_float("MCP", "connect_timeout")
         self.mcp_call_timeout = self._get_float("MCP", "call_timeout")
@@ -187,6 +205,8 @@ class Config:
         self.recall_snippet_chars = self._get_int("TOOLS", "recall_snippet_chars")
         self.recall_total_chars = self._get_int("TOOLS", "recall_total_chars")
         self.skill_description_limit = self._get_int("TOOLS", "skill_description_limit")
+        self.skill_content_limit = self._get_int("TOOLS", "skill_content_limit")
+        self.tool_workspace_root = self._get_str("TOOLS", "tool_workspace_root")
 
         self.search_api_key = self._get_str("search", "baidu_qianfan_api_key")
 

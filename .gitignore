@@ -1,31 +1,27 @@
-# Python
+# ---------- 运行配置与密钥（真实密钥一律不入库）----------
+config.ini
+.env
+*.key
+
+# ---------- Python ----------
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
 venv/
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
 
-# Secrets / local config
-.env
-*.local
-config.ini
-
-# Build artifacts
-dist/
-build/
+# ---------- 运行产物 / 调试残留 ----------
 *.log
+*.pid
+*.tmp
+.agents/sessions/
+.agents/context/
+.agents/logs/
 
-# Binary distribution & local database (publish via GitHub Releases instead)
+# ---------- 二进制与数据（请从 Releases 获取，或按 windows/README.md 自行编译）----------
+# 说明：windows/ 下的 README 与 LICENSE 仍然入库，只忽略可执行文件与数据库
+PetHospitalMCP/windows/*.exe
+PetHospitalMCP/windows/data/
+PetHospitalMCP/*.zip
 *.exe
-*.zip
-pethospitalmcp/windows/data/
-pethospitalmcp/pet-hospital-windows-amd64.zip
-
-# Editor / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+*.db

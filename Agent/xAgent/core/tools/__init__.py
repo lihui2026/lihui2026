@@ -155,10 +155,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "removeDirectory",
-            "description": "删除目录（非空目录也会被删除）。",
+            "description": "删除目录。非空目录必须显式传 recursive=true 才会递归删除（不可恢复，删除前请确认路径）。",
             "parameters": {
                 "type": "object",
-                "properties": {"dir": {"type": "string", "description": "要删除的目录路径。"}},
+                "properties": {
+                    "dir": {"type": "string", "description": "要删除的目录路径。"},
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "可选：是否递归删除非空目录，默认 false（非空目录会被拒绝删除）。",
+                    },
+                },
                 "required": ["dir"],
                 "additionalProperties": False,
             },
@@ -292,6 +298,41 @@ TOOLS = [
 ]
 
 LOCAL_TOOL_NAMES = frozenset(tool["function"]["name"] for tool in TOOLS)
+
+
+def _allowed_root():
+    """读取 [TOOLS] tool_workspace_root；为空表示不限制（保持向后兼容）。"""
+    try:
+        raw = str(getattr(get_config(), "tool_workspace_root", "") or "").strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        return None
+    try:
+        return Path(raw).expanduser().resolve()
+    except OSError:
+        return None
+
+
+def _check_path(path):
+    """写 / 删 / 改类操作的路径边界校验；返回错误串表示拒绝执行。"""
+    root = _allowed_root()
+    if not isinstance(path, str) or not path.strip():
+        return "路径参数错误：必须是非空字符串。"
+    if root is None:
+        return None
+    try:
+        target = Path(path).expanduser().resolve()
+    except OSError as exc:
+        return f"路径解析失败：{exc}"
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return (
+            f"路径越界：{target} 不在允许的根目录 {root} 内，已拒绝执行。"
+            "如需放开限制，请调整 config.ini 的 [TOOLS] tool_workspace_root。"
+        )
+    return None
 
 
 def get_tools():
@@ -450,6 +491,9 @@ def getFileContent(path):
 
 
 def createFile(dir, filename, content="", overwrite=False):
+    guard = _check_path(dir)
+    if guard:
+        return guard
     try:
         d = Path(dir)
         d.mkdir(parents=True, exist_ok=True)
@@ -463,6 +507,9 @@ def createFile(dir, filename, content="", overwrite=False):
 
 
 def editFileContent(path, content="", append=False):
+    guard = _check_path(path)
+    if guard:
+        return guard
     try:
         p = Path(path)
         if not p.exists():
@@ -480,6 +527,9 @@ def editFileContent(path, content="", append=False):
 
 
 def createDirectory(dir):
+    guard = _check_path(dir)
+    if guard:
+        return guard
     try:
         p = Path(dir)
         p.mkdir(parents=True, exist_ok=True)
@@ -488,20 +538,38 @@ def createDirectory(dir):
         return f"创建目录失败：{exc}"
 
 
-def removeDirectory(dir):
+def removeDirectory(dir, recursive=False):
+    guard = _check_path(dir)
+    if guard:
+        return guard
     try:
         p = Path(dir)
         if not p.exists():
             return f"目录不存在：{p}"
         if not p.is_dir():
             return f"指定路径不是目录：{p}"
-        shutil.rmtree(p)
+        try:
+            has_entries = any(p.iterdir())
+        except OSError as exc:
+            return f"删除目录失败：无法读取目录内容：{exc}"
+        if has_entries and not recursive:
+            return (
+                f"拒绝删除非空目录：{p}（该操作不可恢复）。"
+                "确认无误后请以 recursive=true 重新调用。"
+            )
+        if has_entries:
+            shutil.rmtree(p)
+        else:
+            p.rmdir()
         return f"已删除目录：{p}"
     except Exception as exc:
         return f"删除目录失败：{exc}"
 
 
 def deleteFile(path):
+    guard = _check_path(path)
+    if guard:
+        return guard
     try:
         p = Path(path)
         if not p.exists():
@@ -515,6 +583,10 @@ def deleteFile(path):
 
 
 def renamePath(src, dst, overwrite=False):
+    for target in (src, dst):
+        guard = _check_path(target)
+        if guard:
+            return guard
     try:
         s = Path(src)
         d = Path(dst)
@@ -678,7 +750,7 @@ def call_tool(name, arguments=None):
     if name == "createDirectory":
         return createDirectory(args.get("dir"))
     if name == "removeDirectory":
-        return removeDirectory(args.get("dir"))
+        return removeDirectory(args.get("dir"), bool(args.get("recursive")))
     if name == "deleteFile":
         return deleteFile(args.get("path"))
     if name == "renamePath":

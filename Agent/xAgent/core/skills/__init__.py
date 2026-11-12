@@ -317,6 +317,14 @@ class SkillManager:
         content = SkillManager._read_text(target)
         if content is None:
             return f"读取文件失败：{target}"
+        limit = int(getattr(get_config(), "skill_content_limit", 20000) or 20000)
+        if len(content) > limit:
+            omitted = len(content) - limit
+            content = (
+                content[:limit]
+                + f"\n\n……（文件超过 {limit} 字符，已截断 {omitted} 字符；"
+                "如需其余内容请用 getFileContent 分段读取）……"
+            )
         return content
 
     def _find_candidates(self, skill_dir: Path, filename: str) -> List[Path]:

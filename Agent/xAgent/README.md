@@ -33,25 +33,40 @@ xAgent/
 
 ## 运行
 ```bash
-pip install textual requests trafilatura mcp
+pip install -r requirements.txt    # 依赖及版本约束
 python main.py
 ```
 
 首次运行若找不到 `xAgent/config.ini`，程序会自动生成完整配置模板，并弹窗提示修改 `base_url`、`model`、`api_key` 等配置后重启。
+
+启动后建议依次验证：`/status`（会话与长期规则文件状态）→ `/tools`（本地工具是否齐全）→ `/mcp`（MCP 是否连上）→ `/compact`（压缩链路可用）。单测：
+```bash
+python -m pytest tests -q
+```
 
 ## 配置
 配置集中在 `xAgent/config.ini`，主要小节如下：
 
 | 小节 | 主要配置 |
 | --- | --- |
-| `[LLM]` | `base_url`、`model`、`api_key`、`timeout`、`context_window`、`default_context_window`、`compact_threshold`、`summary_target_tokens`、`max_tool_rounds` |
+| `[LLM]` | `base_url`、`model`、`api_key`、`timeout`、`context_window`、`default_context_window`、`compact_threshold`、`summary_target_tokens`、`max_tool_rounds`、`agents_md_enabled`、`agents_md_filename`、`agents_md_max_chars` |
 | `[MCP]` | `connect_timeout`、`call_timeout`、`output_limit` |
-| `[TOOLS]` | `tool_timeout`、`cli_timeout`、`cli_output_limit`、`fetch_*`、`search_timeout`、`recall_*`、`skill_description_limit` |
+| `[TOOLS]` | `tool_timeout`、`cli_timeout`、`cli_output_limit`、`fetch_*`、`search_timeout`、`recall_*`、`skill_description_limit`、`skill_content_limit`、`tool_workspace_root` |
 | `[search]` | `baidu_qianfan_api_key` |
 | `[SESSION]` | `dir`、`auto_save`、`list_limit` |
 | `[UI]` | `sidebar_width`、`command_palette_max` |
 
 `context_window = 0` 表示自动探测模型窗口，探测失败时使用 `default_context_window`（默认 128k）。`compact_threshold = 0.6` 表示上下文占用达到 60% 时暂停接收新提示词。
+
+几个直接影响行为的开关：
+
+| 配置 | 默认 | 作用 |
+| --- | --- | --- |
+| `agents_md_filename` | `AGENT.md` | 长期规则文件名；找不到时依次回退 `AGENTS.md` / `agents.md` / `agent.md` |
+| `agents_md_enabled` | `true` | 关闭后不注入任何长期规则文件 |
+| `agents_md_max_chars` | `8000` | 注入内容的字符上限，超出截断并注明（防止规则文件挤占上下文） |
+| `skill_content_limit` | `20000` | `loadSkill` 单次返回的最大字符数，超出截断 |
+| `tool_workspace_root` | 空 | 填写后，`createFile` / `editFileContent` / `createDirectory` / `removeDirectory` / `deleteFile` / `renamePath` 的目标路径必须位于该目录内，越界直接拒绝 |
 
 ## 斜杠命令
 输入 `/` 会弹出命令补全面板，支持 `↑/↓` 选择、`Tab` 补全、`Enter` 执行、`Esc` 关闭。
@@ -64,10 +79,10 @@ python main.py
 | `/save` | 保存当前会话快照 |
 | `/compact` | 压缩当前上下文 |
 | `/clear` | 清空当前上下文，保留会话文件 |
-| `/status` | 查看会话、AGENTS.md、模型与上下文状态 |
+| `/status` | 查看会话、长期规则文件、模型与上下文状态 |
 | `/tools` | 列出本地与 MCP 工具 |
 | `/mcp` | 刷新 MCP 侧栏并输出连接信息 |
-| `/agents` | 查看 AGENTS.md 路径与注入状态 |
+| `/agents` | 查看长期规则文件路径与注入状态 |
 | `/help` | 显示命令帮助 |
 | `/quit`、`/exit` | 退出 xAgent |
 
@@ -75,7 +90,8 @@ python main.py
 - 会话文件保存在项目根目录的 `.agents/sessions/`，文件名即会话编号（如 `20261111-100000.jsonl`）。
 - 每条消息在产生时立即追加写入 JSONL；压缩、手动保存、恢复等操作会写入 `snapshot` 事件，恢复时以最后一个快照为准。
 - 会话标题默认取第一条用户消息，可用 `/status` 查看当前会话编号与文件路径。
-- 若项目根目录存在 `AGENTS.md`（或 `agents.md`），启动新会话时会作为额外的 `system` 消息注入一次，并随会话快照持久化；恢复会话或压缩上下文时不会重复注入。
+- 若项目根目录存在长期规则文件，启动新会话（或 `/clear`）时会作为额外的 `system` 消息注入**一次**，并随会话快照持久化；恢复会话或压缩上下文时不会重复注入。文件名优先取 `AGENT.md`（可用 `[LLM] agents_md_filename` 改名），找不到时依次回退 `AGENTS.md` / `agents.md` / `agent.md`；内容超过 `agents_md_max_chars` 会截断并注明，文件缺失不报错。
+- 每次工具调用会向 `.agents/logs/tool_calls.jsonl` 追加一行结构化记录（时间、会话号、工具名、是否成功、耗时 ms、结果字符数），便于复盘与排查。
 - TUI 顶部显示当前会话编号与上下文用量；MCP 侧栏在后台异步加载，不会阻塞首次渲染。
 
 ## MCP Client
@@ -120,6 +136,8 @@ stdio 服务器配置示例：
 
 ## 核心功能
 复用 Practice02 的全部本地文件操作工具：getDate、getCurrentWorkingDirectory、listDirectory、getFileType、getFileContent、createFile、editFileContent、createDirectory、removeDirectory、deleteFile、renamePath、isLeapYear，以及网页工具 fetchWeb、searchWeb、本地命令行工具 RunCli 和 Skill 工具 loadSkill、createSkill。createSkill 可在项目的 `.agents/skills/` 目录下创建符合 Agent Skills 规范的新 Skill。MCP 工具会自动与上述本地工具合并。
+
+安全性：`removeDirectory` 对非空目录默认拒绝删除，必须显式传 `recursive=true`；配置 `[TOOLS] tool_workspace_root` 后，所有写/删/改操作的目标路径必须位于该目录内，越界直接返回拒绝原因。
 
 ## 上下文压缩与历史检索
 当会话较长时，可以用 `/compact` 手动压缩上下文，把历史对话整理成约 `summary_target_tokens`（默认 5,000）Tokens 的工作摘要，从而在有限的上下文窗口内继续执行长任务。

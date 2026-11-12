@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "bazi-mcp": {
+      "type": "remote",
+      "url": "https://mcp.api-inference.modelscope.net/a205b6fc740d4a/mcp",
+      "enabled": true
+    },
+    "pet-hospital-mcp": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8090/mcp",
+      "enabled": true
+    }
+  }
+}
